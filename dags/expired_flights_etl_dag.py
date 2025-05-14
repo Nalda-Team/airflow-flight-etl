@@ -1,6 +1,5 @@
 from airflow import DAG
 from airflow.operators.python import PythonOperator
-from airflow.utils.log.logging_mixin import LoggingMixin
 from pendulum import timezone
 from datetime import datetime, timedelta
 import os
@@ -15,6 +14,7 @@ from expired_flights_etl_dag_helpers.utils import  get_airport_lists
 from database_helpers.utils import get_db_conn
 from date_utils.logical_date_func import get_actual_execution_date
 
+from airflow.utils.log.logging_mixin import LoggingMixin
 logger = LoggingMixin().log
 conn, engine=get_db_conn()
 # 상수 정의
@@ -64,7 +64,7 @@ def process_single_route(execution_date_in_seoul, depart_airport, arrival_airpor
 def expired_flights_etl(**context):
     """만료된 항공권 ETL 메인 함수"""
     # 실행 날짜 설정
-    execution_date = get_actual_execution_date(context['logical_date'])
+    execution_date = context['logical_date']
     execution_date_in_seoul = execution_date.astimezone(timezone(TIMEZONE))
     
     logger.info(f'실행 날짜 (UTC) : {execution_date}')
@@ -85,13 +85,15 @@ def expired_flights_etl(**context):
             
             # 도착 -> 출발 방향 처리 (왕복)
             process_single_route(execution_date_in_seoul, arrival_airport, depart_airport, formatter)
-    
-    logger.info('전체 데이터 추출 완료')
-    logger.info('데이터 마이그레이션이 끝난 항공권들을 DB에서 제거합니다!')
-    deleted_info=delete_extracted_flights(execution_date_in_seoul, conn)
-    logger.info(f"{depart_airport}에서 {arrival_airport}로 가는 항공편 {deleted_info['flight_info']}개 레코드가 삭제되었습니다.")
+    logger.info('데이터 추출 및 업로드 완료')
     return True
 
+def delete_expired_flights_from_db(**context):
+    execution_date = get_actual_execution_date(context['logical_date'])
+    execution_date_in_seoul = execution_date.astimezone(timezone(TIMEZONE))
+    logger.info('데이터 마이그레이션이 끝난 항공권들을 DB에서 제거합니다!')
+    deleted_info=delete_extracted_flights(execution_date_in_seoul, conn)
+    logger.info(f"{execution_date_in_seoul}에 출발한 항공편 {deleted_info['flight_info']}개 레코드가 삭제되었습니다.")
 
 # DAG 설정
 default_args = {
@@ -105,7 +107,7 @@ default_args = {
 }
 
 with DAG(
-    'expired_flights_etl',
+    'expired_flights_etl_dag',
     default_args=default_args,
     description='출발일이 지난 항공권들 추출 -> 클라우드 스토리지로 마이그레이션(json)',
     schedule='@daily',
@@ -113,8 +115,14 @@ with DAG(
     catchup=True,
     max_active_runs=1,  # 동시 실행 가능한 DAG 최대 개수 지정
 ) as dag:
-    extract_format_task = PythonOperator(
-        task_id='expired_flights_etl',
+    extract_expired_flights_and_upload_to_GCS = PythonOperator(
+        task_id='extract_expired_flights_and_upload_to_GCS',
         python_callable=expired_flights_etl,
     )
-    extract_format_task
+    
+    DELETE_expired_flights_from_db = PythonOperator(
+        task_id='DELETE_expired_flights_from_db',
+        python_callable=delete_expired_flights_from_db,
+    )
+
+    extract_expired_flights_and_upload_to_GCS >> DELETE_expired_flights_from_db
