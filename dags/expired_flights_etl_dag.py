@@ -18,7 +18,7 @@ from airflow.utils.log.logging_mixin import LoggingMixin
 logger = LoggingMixin().log
 conn, engine=get_db_conn()
 # 상수 정의
-BUCKET_NAME = 'expired_flight_bucket_standard'
+BUCKET_NAME = 'nalda_expired_flight_bucket'
 DATA_DIR = '/opt/airflow/data'
 TIMEZONE = 'Asia/Seoul'
 
