@@ -7,10 +7,17 @@ def get_actual_execution_date(logical_date):
 
 def xcom_push_actual_execution_date(**context):
     logical_date = context['logical_date']
-    actual_execution_date = get_actual_execution_date(context['execution_date'])
     print(f"Logical Date: {logical_date}")
+    actual_execution_date = get_actual_execution_date(context['execution_date'])
     print(f"actual_execution_date: {actual_execution_date}")
-    context['ti'].xcom_push(key='actual_execution_date', value=actual_execution_date)
+    execution_date_in_seoul = actual_execution_date.astimezone(timezone('Asia/Seoul'))
+    print(f"actual_execution_date: {execution_date_in_seoul}")
+
+    context['ti'].xcom_push(key='actual_execution_date', value=execution_date_in_seoul)
+
+    actual_execution_date_str = execution_date_in_seoul.strftime('%Y-%m-%d')  # <-- 문자열로 변환
+    print('actual_execution_date_str:', actual_execution_date_str)
+    context['ti'].xcom_push(key='actual_execution_date_str', value=actual_execution_date_str)
     # 필요한 처리 수행
     return actual_execution_date
 
